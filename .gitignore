@@ -2,7 +2,5 @@ __pycache__
 venv
 .env
 downloads
-*.session
-bot_session.session
 .vscode/
 .idea/
