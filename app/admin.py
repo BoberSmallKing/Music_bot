@@ -1,59 +1,40 @@
-from aiogram import Bot
 from aiogram.types import Message, CallbackQuery
 from functools import wraps
 from typing import Callable, Any, Union
 
-
-async def is_chat_admin(bot: Bot, user_id: int, chat_id: int) -> bool:
-    """
-    Проверяет, является ли пользователь администратором или создателем чата.
-    """
-    try:
-        member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-        return member.status in ("administrator", "creator")
-    except Exception as e:
-        print(f"[AdminCheck] Ошибка проверки прав администратора: {e}")
-        return False
+# Укажи здесь свои Telegram ID администраторов
+ADMIN_IDS: set[int] = {2106925564}
 
 
 def admin_required(alert_text: str = "❌ У вас нет прав администратора!"):
     """
-    Декоратор проверки администратора чата или канала (включая обсуждения).
+    Декоратор для проверки администратора в личных сообщениях (private chat).
+    Работает как с Message, так и с CallbackQuery.
     """
     def decorator(func: Callable):
         @wraps(func)
         async def wrapper(event: Union[Message, CallbackQuery], *args: Any, **kwargs: Any):
-            bot: Bot = event.bot
+            # Определяем чат
+            chat = event.message.chat if isinstance(event, CallbackQuery) else event.chat
 
-            # Определяем chat_id
-            chat_id = (
-                event.message.chat.id if isinstance(event, CallbackQuery)
-                else event.chat.id
-            )
-
-            # --- Определяем user_id ---
-            user_id = None
-            if hasattr(event, "from_user") and event.from_user:
-                user_id = event.from_user.id
-            elif hasattr(event, "sender_chat") and event.sender_chat:
-                # Если пишет канал (в обсуждениях)
-                user_id = event.sender_chat.id
-
-            if user_id is None:
-                print("[AdminCheck] Не удалось определить пользователя.")
+            # Проверяем, что чат приватный
+            if chat.type != "private":
+                text = "⚠️ Эта команда доступна только в личных сообщениях."
                 if isinstance(event, CallbackQuery):
-                    await event.answer(alert_text, show_alert=True)
+                    await event.answer(text, show_alert=True)
+                else:
+                    await event.answer(text)
                 return
 
-            # Проверяем права
-            if await is_chat_admin(bot, user_id, chat_id):
+            # Проверяем ID пользователя
+            user_id = getattr(event.from_user, "id", None)
+            if user_id in ADMIN_IDS:
                 return await func(event, *args, **kwargs)
-            else:
-                if isinstance(event, CallbackQuery):
-                    await event.answer(alert_text, show_alert=True)
-                # Можно убрать, если не хочешь текст при сообщениях
-                elif isinstance(event, Message):
-                    await event.reply(alert_text)
 
+            # Если пользователь не админ
+            if isinstance(event, CallbackQuery):
+                await event.answer(alert_text, show_alert=True)
+            else:
+                await event.answer(alert_text)
         return wrapper
     return decorator
