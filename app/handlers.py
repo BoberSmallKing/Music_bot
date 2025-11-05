@@ -9,6 +9,7 @@ from .keyboards import get_menu_keyboard
 from .admin import admin_required
 import html
 from pathlib import Path
+import re
 
 
 
@@ -22,6 +23,91 @@ class Reg(StatesGroup):
 current_dir = Path(__file__).parent  
 
 photo_path = current_dir.parent / "menu_photo.jpg"
+
+DOWNLOADS_DIR = Path("downloads")
+DOWNLOADS_DIR.mkdir(exist_ok=True)
+
+def sanitize_filename(name: str) -> str:
+    return re.sub(r'[\\/:*?"<>|]+', "_", name).strip()
+
+def ext_from_mime(mime: str) -> str:
+    mapping = {
+        "audio/mpeg": ".mp3",
+    }
+    return mapping.get(mime, ".mp3")
+
+
+@router.message(CommandStart())
+async def cmd_start(message: Message):
+    user_name = html.escape(message.from_user.full_name)
+    await message.answer(
+        f"Привет {user_name}! 🎶\nЭто музыкальный бот, который умеет искать и включать музыку!",
+    )
+
+
+@router.message(Command("menu"))
+@admin_required()
+async def show_menu(message: Message):
+    photo = FSInputFile(photo_path)
+    await message.answer_photo(photo=photo, caption="🎧 Главное меню:", reply_markup=get_menu_keyboard())
+
+
+@router.callback_query(lambda c: c.data == "add_music")
+@admin_required()
+async def add_music_callback(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(Reg.enter_music)
+    await callback.message.answer("Введите песню, которую хотите найти 🎵")
+    await callback.answer()
+
+
+@router.message(Reg.enter_music, F.audio)
+@admin_required()
+async def enter_music_audio(message: Message, state: FSMContext):
+    if len(list_musics) >= 5:
+        await message.answer("❌ Очередь уже заполнена! Пожалуйста, удалите лишние треки.")
+        return
+
+    audio = message.audio
+    base_name = audio.file_name or audio.title or f"audio_{audio.file_unique_id}"
+    ext = Path(base_name).suffix or ext_from_mime(audio.mime_type or "")
+    safe_name = sanitize_filename(Path(base_name).stem) + ext
+    dest_path = DOWNLOADS_DIR / safe_name
+
+    await message.answer("⬇️ Сохраняю ваш аудиофайл...")
+    try:
+        await message.bot.download(audio, destination=dest_path)
+        list_musics.append(dest_path.name)
+        await state.clear()
+        await message.answer(f"✅ Файл '{dest_path.name}' добавлен в очередь!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при сохранении файла: {str(e)}")
+
+@router.message(Reg.enter_music, F.document)
+@admin_required()
+async def enter_music_document(message: Message, state: FSMContext):
+    if len(list_musics) >= 5:
+        await message.answer("❌ Очередь уже заполнена! Пожалуйста, удалите лишние треки.")
+        return
+
+    doc = message.document
+    allowed_ext = {".mp3", }
+    file_name = doc.file_name or f"file_{doc.file_unique_id}"
+    ext = Path(file_name).suffix.lower()
+    if ext not in allowed_ext:
+        await message.answer("❌ Это не аудиофайл поддерживаемого формата. Пришлите .mp3")
+        return
+
+    safe_name = sanitize_filename(Path(file_name).stem) + ext
+    dest_path = DOWNLOADS_DIR / safe_name
+
+    await message.answer("⬇️ Сохраняю ваш файл...")
+    try:
+        await message.bot.download(doc, destination=dest_path)
+        list_musics.append(dest_path.name)
+        await state.clear()
+        await message.answer(f"✅ Файл '{dest_path.name}' добавлен в очередь!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при сохранении файла: {str(e)}")
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
