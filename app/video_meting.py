@@ -10,7 +10,9 @@ import os
 
 load_dotenv()
 
-list_musics = ["Marius Bear - Boys Do Cry - Switzerland 🇨🇭 - Official Music Video - Eurovision 2022.mp3", "Tom Odell - Another Love (Official Video).mp3"]
+from .song_store import load_song_list
+
+list_musics = load_song_list()
 app = None
 current_track_index = 0
 

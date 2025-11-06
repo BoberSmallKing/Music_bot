@@ -5,11 +5,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram import F, Router
 from .music_serch import download_audio_from_youtube
 from .video_meting import play_audio_in_call, list_musics, pause_audio, resume_audio, leave_audio
+from .song_store import save_song_list
 from .keyboards import get_menu_keyboard
 from .admin import admin_required
 import html
 from pathlib import Path
 import re
+import os
 
 
 
@@ -77,6 +79,7 @@ async def enter_music_audio(message: Message, state: FSMContext):
     try:
         await message.bot.download(audio, destination=dest_path)
         list_musics.append(dest_path.name)
+        save_song_list(list_musics)
         await state.clear()
         await message.answer(f"✅ Файл '{dest_path.name}' добавлен в очередь!")
     except Exception as e:
@@ -104,6 +107,7 @@ async def enter_music_document(message: Message, state: FSMContext):
     try:
         await message.bot.download(doc, destination=dest_path)
         list_musics.append(dest_path.name)
+        save_song_list(list_musics)
         await state.clear()
         await message.answer(f"✅ Файл '{dest_path.name}' добавлен в очередь!")
     except Exception as e:
@@ -143,6 +147,7 @@ async def enter_music(message: Message, state: FSMContext):
             await message.answer("❌ Очередь уже заполнена! Пожалуйста, удалите лишние треки.")
             return
         list_musics.append(filename)
+        save_song_list(list_musics)
         await state.update_data(audio_filename=filename)
         await message.answer(f"✅ Песня '{filename}' найдена и добавлена в очередь!")
     except Exception as e:
@@ -183,7 +188,13 @@ async def play_all_callback(callback: CallbackQuery):
 @router.callback_query(F.data == "clear_queue")
 @admin_required()
 async def play_all_callback(callback: CallbackQuery):
+    for fname in list_musics:
+        try:
+            os.remove(DOWNLOADS_DIR / fname)
+        except Exception:
+            pass
     list_musics.clear()
+    save_song_list(list_musics)
     await callback.answer("Очищена очередь!")
 
 
@@ -229,6 +240,11 @@ async def delete_track(message: Message, state: FSMContext):
         index = int(message.text) - 1 
         if 0 <= index < len(list_musics):
             deleted_track = list_musics.pop(index)
+            try:
+                os.remove(DOWNLOADS_DIR / deleted_track)
+            except Exception:
+                pass
+            save_song_list(list_musics)
             await message.answer(f"🗑 Трек '{deleted_track.replace('.mp3', '')}' удален из очереди!")
         else:
             await message.answer("❌ Неверный номер трека! Пожалуйста, выберите номер из списка.")
