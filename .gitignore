@@ -4,3 +4,5 @@ venv
 downloads
 .vscode/
 .idea/
+songs.json
+bot_session.session-journal

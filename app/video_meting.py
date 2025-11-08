@@ -91,3 +91,28 @@ async def leave_audio():
         return
     await app.leave_call(CHAT_ID)
     is_streaming = False
+
+async def next_track():
+    global current_track_index, is_streaming
+    if app is None:
+        print("Клиент не запущен, сначала вызовите start_call_manager().")
+        return
+    if not list_musics:
+        print("Список треков пуст!")
+        return
+    current_track_index = (current_track_index + 1) % len(list_musics)
+    audio_path = Path("downloads") / list_musics[current_track_index]
+    print(f"▶️ Воспроизведение следующего трека: {audio_path}")
+    try:
+        if is_streaming:
+            await app.pause(CHAT_ID)
+        await app.play(
+            CHAT_ID,
+            MediaStream(str(audio_path), audio_flags=MediaStream.Flags.AUTO_DETECT)
+        )
+        is_streaming = True
+        return list_musics[current_track_index]  
+    except Exception as e:
+        print(f"Ошибка при воспроизведении трека {audio_path}: {e}")
+        is_streaming = False
+        raise
