@@ -4,6 +4,7 @@ from aiogram import F, Router
 from .music_serch import download_audio_from_youtube
 from .video_meting import play_audio_in_call, list_musics, pause_audio, resume_audio, leave_audio, next_track
 from .song_store import save_song_list
+from .admin import admin_required
 from .keyboards import get_menu_keyboard
 from dotenv import load_dotenv
 import html
@@ -96,7 +97,7 @@ async def add_music(message: Message):
 
 
 @router.callback_query(lambda c: c.data == "show_queue")
-
+@admin_required()
 async def show_queue_callback(callback: CallbackQuery):
     if not list_musics:
         await callback.message.answer("Очередь пуста! 💤")
@@ -112,7 +113,7 @@ async def show_queue_callback(callback: CallbackQuery):
 
 
 @router.callback_query(lambda c: c.data == "play_all")
-
+@admin_required()
 async def play_all_callback(callback: CallbackQuery):
     if not list_musics:
         await callback.answer("Очередь пуста! 💤")
@@ -125,7 +126,7 @@ async def play_all_callback(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "clear_queue")
-
+@admin_required()
 async def play_all_callback(callback: CallbackQuery):
     for fname in list_musics:
         try:
@@ -139,17 +140,20 @@ async def play_all_callback(callback: CallbackQuery):
 
 
 @router.callback_query(F.data =="pause_audio")
+@admin_required()
 async def pause_track(callback: CallbackQuery):
     await pause_audio()
     await callback.answer("⏸ Воспроизведение приостановлено")
 
 @router.callback_query(F.data =="resume_audio")
+@admin_required()
 async def resume_track(callback: CallbackQuery):
     await resume_audio()
     await callback.answer("▶️ Воспроизведение возобновлено")
 
 
 @router.callback_query(F.data =="exit")
+@admin_required()
 async def exit(callback: CallbackQuery):
     await leave_audio()
     await callback.answer("🚪Выйти из звонка")
@@ -186,6 +190,7 @@ async def delete_track(message: Message):
         await message.bot.send_message(chat_id=channel_id, text="❌ Пожалуйста, введите число, соответствующее номеру трека (например, /delete 1).")
 
 @router.callback_query(F.data == "next_track")
+@admin_required()
 async def next_track_callback(callback: CallbackQuery):
     if not list_musics:
         await callback.answer("❌ Очередь пуста! Добавьте треки с помощью /add.")
