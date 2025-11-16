@@ -43,55 +43,105 @@ async def cmd_start(message: Message):
         f"Привет {user_name}! 🎶\nЭто музыкальный бот, который умеет искать и включать музыку!",
     )
 
-@router.message(F.text == "menu" or Command("menu"))
-async def menu_handler(message: Message):
-    photo = FSInputFile(photo_path)
-    if channel_id:
-        sent_message = await message.bot.send_photo(
-            chat_id=channel_id,
-            photo=photo,
-            caption="🎧 Главное меню:",
-            reply_markup=get_menu_keyboard()
-        )
-    else:
-        await message.answer_photo(
-            photo=photo,
-            caption="🎧 Главное меню:",
-            reply_markup=get_menu_keyboard()
-        )
+@router.channel_post()
+async def handle_channel_post(message: Message):
+    if str(message.chat.id) != channel_id:
+        return  # Игнорируем сообщения из других каналов
 
-@router.message(Command("add"))
-async def add_music(message: Message):
-    if len(list_musics) >= 5:
-        await message.answer("❌ Очередь уже заполнена! Пожалуйста, удалите лишние треки.")
-        return
+    text = message.text or message.caption or ""
+    if not text:
+        return  # Игнорируем сообщения без текста
 
-    if message.audio:
-        audio = message.audio
-        base_name = audio.file_name or audio.title or f"audio_{audio.file_unique_id}"
-        ext = Path(base_name).suffix or ext_from_mime(audio.mime_type or "")
-        safe_name = sanitize_filename(Path(base_name).stem) + ext
-        dest_path = DOWNLOADS_DIR / safe_name
-        await message.bot.send_message(chat_id=channel_id, text="⬇️ Сохраняю ваш аудиофайл...")
-        try:
-            await message.bot.download(audio, destination=dest_path)
-            list_musics.append(dest_path.name)
-            save_song_list(list_musics)
-            await message.bot.send_message(chat_id=channel_id ,text=f"✅ Файл '{dest_path.name}' добавлен в очередь!")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка при сохранении файла: {str(e)}")
-    elif message.text and len(message.text.split()) > 1:
-        query = " ".join(message.text.split()[1:])
-        await message.bot.send_message(chat_id=channel_id, text="🔍 Ищу и скачиваю музыку...")
-        try:
-            filename = download_audio_from_youtube(query)
-            list_musics.append(filename)
-            save_song_list(list_musics)
-            await message.bot.send_message(chat_id=channel_id, text=f"✅ Песня '{filename}' найдена и добавлена в очередь!")
-        except Exception as e:
-            await message.answer(f"❌ Ошибка при скачивании: {str(e)}")
-    else:
-        await message.answer("❌ Пожалуйста, укажите название песни после /add или прикрепите аудиофайл.")
+    # Проверяем, начинается ли текст с нужных команд
+    if not (text.startswith("/add") or text.startswith("/delete") or text.startswith("/menu")):
+        return  # Игнорируем сообщения, не содержащие /add, /delete или /menu
+
+    async def process_channel_command(message: Message, text: str):
+        if text.startswith("/add"):
+            if len(list_musics) >= 5:
+                await message.bot.send_message(
+                    chat_id=channel_id,
+                    text="❌ Очередь уже заполнена! Пожалуйста, удалите лишние треки."
+                )
+                return
+
+            query = text[len("/add"):].strip()
+            if query:
+                await message.bot.send_message(
+                    chat_id=channel_id,
+                    text="🔍 Ищу и скачиваю музыку..."
+                )
+                try:
+                    filename = download_audio_from_youtube(query)
+                    list_musics.append(filename)
+                    save_song_list(list_musics)
+                    await message.bot.send_message(
+                        chat_id=channel_id,
+                        text=f"✅ Песня '{filename}' найдена и добавлена в очередь!"
+                    )
+                except Exception as e:
+                    await message.bot.send_message(
+                        chat_id=channel_id,
+                        text=f"❌ Ошибка при скачивании: {str(e)}"
+                    )
+            else:
+                await message.bot.send_message(
+                    chat_id=channel_id,
+                    text="❌ Пожалуйста, укажите название песни после /add."
+                )
+
+        elif text.startswith("/delete"):
+            if not list_musics:
+                await message.bot.send_message(
+                    chat_id=channel_id,
+                    text="Очередь пуста! 💤"
+                )
+                return
+
+            if len(text.split()) == 1:
+                queue_text = "🎵 Текущая очередь песен:\n"
+                for i, music in enumerate(list_musics, 1):
+                    queue_text += f"{i}. {music.replace('.mp3', '')}\n"
+                await message.bot.send_message(
+                    chat_id=channel_id,
+                    text=f"{queue_text}\nВведите команду /delete <номер трека>, чтобы удалить трек."
+                )
+                return
+
+            try:
+                index = int(text.split()[1]) - 1
+                if 0 <= index < len(list_musics):
+                    deleted_track = list_musics.pop(index)
+                    try:
+                        os.remove(DOWNLOADS_DIR / deleted_track)
+                    except Exception:
+                        pass
+                    save_song_list(list_musics)
+                    await message.bot.send_message(
+                        chat_id=channel_id,
+                        text=f"🗑 Трек '{deleted_track.replace('.mp3', '')}' удален из очереди!"
+                    )
+                else:
+                    await message.bot.send_message(
+                        chat_id=channel_id,
+                        text="❌ Неверный номер трека! Пожалуйста, выберите номер из списка."
+                    )
+            except (ValueError, IndexError):
+                await message.bot.send_message(
+                    chat_id=channel_id,
+                    text="❌ Пожалуйста, введите число, соответствующее номеру трека (например, /delete 1)."
+                )
+
+        elif text == "/menu":
+            photo = FSInputFile(photo_path)
+            await message.bot.send_photo(
+                chat_id=channel_id,
+                photo=photo,
+                caption="🎧 Главное меню:",
+                reply_markup=get_menu_keyboard()
+            )
+
+    await process_channel_command(message, text)
 
 
 
@@ -158,36 +208,6 @@ async def exit(callback: CallbackQuery):
     await leave_audio()
     await callback.answer("🚪Выйти из звонка")
 
-@router.message(Command("delete"))
-async def delete_track(message: Message):
-    if not list_musics:
-        await message.answer("Очередь пуста! 💤")
-        return
-
-    # Показать очередь, если команда без номера
-    if len(message.text.split()) == 1:
-        queue_text = "🎵 Текущая очередь песен:\n"
-        for i, music in enumerate(list_musics, 1):
-            queue_text += f"{i}. {music.replace('.mp3', '')}\n"
-        await message.bot.send_message(chat_id=channel_id, text=f"{queue_text}\nВведите команду /delete <номер трека>, чтобы удалить трек.")    
-        return
-    try:
-        index = int(message.text.split()[1]) - 1
-        if 0 <= index < len(list_musics):
-            deleted_track = list_musics.pop(index)
-            try:
-                os.remove(DOWNLOADS_DIR / deleted_track)
-            except Exception:
-                pass
-            save_song_list(list_musics)
-            await message.bot.send_message(
-                chat_id=channel_id,
-                text=f"🗑 Трек '{deleted_track.replace('.mp3', '')}' удален из очереди!"
-            )
-        else:
-            await message.bot.send_message(chat_id=channel_id, text="❌ Неверный номер трека! Пожалуйста, выберите номер из списка.")
-    except (ValueError, IndexError):
-        await message.bot.send_message(chat_id=channel_id, text="❌ Пожалуйста, введите число, соответствующее номеру трека (например, /delete 1).")
 
 @router.callback_query(F.data == "next_track")
 @admin_required()
