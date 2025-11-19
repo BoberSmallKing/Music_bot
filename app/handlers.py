@@ -1,5 +1,7 @@
 from aiogram.types import Message, CallbackQuery, FSInputFile
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram import F, Router
 from .music_serch import download_audio_from_youtube
 from .video_meting import play_audio_in_call, list_musics, pause_audio, resume_audio, leave_audio, next_track
@@ -14,17 +16,16 @@ import os
 
 load_dotenv()
 
-
 router = Router()
-
-
 current_dir = Path(__file__).parent  
-
 photo_path = current_dir.parent / "menu_photo.jpg"
 
 DOWNLOADS_DIR = Path("downloads")
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 channel_id = os.getenv("CHAT_ID")
+
+class AddSongStates(StatesGroup):
+    waiting_for_song_name = State()
 
 def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", name).strip()
@@ -53,7 +54,7 @@ async def handle_channel_post(message: Message):
         return  # Игнорируем сообщения без текста
 
     # Проверяем, начинается ли текст с нужных команд
-    if not (text.startswith("/add") or text.startswith("/delete") or text.startswith("/menu")):
+    if not (text.startswith("/add") or text.startswith("/delete") or text.startswith("/menu")or text=="/next"):
         return  # Игнорируем сообщения, не содержащие /add, /delete или /menu
 
     async def process_channel_command(message: Message, text: str):
@@ -89,7 +90,17 @@ async def handle_channel_post(message: Message):
                     chat_id=channel_id,
                     text="❌ Пожалуйста, укажите название песни после /add."
                 )
+        elif text=="/next":
+            if not list_musics:
+                await message.bot.send_message(channel_id, "Очередь пуста! Добавьте треки.")
+                return
 
+            track_name = await next_track()
+            await message.bot.send_message(
+                channel_id,
+                f"Следующий трек: **{track_name.replace('.mp3', '')}**",
+                parse_mode="Markdown"
+            )
         elif text.startswith("/delete"):
             if not list_musics:
                 await message.bot.send_message(
@@ -221,3 +232,40 @@ async def next_track_callback(callback: CallbackQuery):
         await callback.answer(f"▶️ Воспроизведение следующего трека: {track_name.replace('.mp3', '')}")
     except Exception as e:
         await callback.answer(f"❌ Ошибка при переключении трека: {str(e)}")
+
+# --- Кнопка "Добавить песню" ---
+@router.callback_query(F.data == "add_song")
+@admin_required()
+async def add_song_button(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(
+        "Напишите название песни или исполнителя, который нужно добавить в очередь:\n"
+        "Например: Imagine Dragons Believer"
+    )
+    await state.set_state(AddSongStates.waiting_for_song_name)
+    await callback.answer()
+
+
+# --- Ожидание названия песни после нажатия кнопки ---
+@router.message(AddSongStates.waiting_for_song_name)
+async def process_song_name_from_button(message: Message, state: FSMContext):
+    if len(list_musics) >= 5:
+        await message.answer("Очередь уже заполнена (макс. 5 треков)!")
+        await state.clear()
+        return
+
+    query = message.text.strip()
+    if not query:
+        await message.answer("Пожалуйста, введите название песни.")
+        return
+
+    await message.answer("Ищу и скачиваю музыку...")
+
+    try:
+        filename = download_audio_from_youtube(query)
+        list_musics.append(filename)
+        save_song_list(list_musics)
+        await message.answer(f"Песня '{filename}' добавлена в очередь!")
+    except Exception as e:
+        await message.answer(f"Ошибка при скачивании: {str(e)}")
+    finally:
+        await state.clear()

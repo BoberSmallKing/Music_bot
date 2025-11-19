@@ -3,6 +3,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def get_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
+        [InlineKeyboardButton(text="Добавить песню", callback_data="add_song")],
         [InlineKeyboardButton(text="▶️ Сыграть все", callback_data="play_all")],
         [InlineKeyboardButton(text="🎵 Очередь", callback_data="show_queue")],
         [InlineKeyboardButton(text="🗑️ Очистить очередь", callback_data="clear_queue")],
